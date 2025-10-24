@@ -87,19 +87,26 @@ class PreviewGenerator {
         let duration = endTime - startTime
         let fps = Double(nominalFrameRate)
         let totalFrames = Int(duration * fps)
-        let frameInterval = Int(speedFactor)
+
+        // Downsample: sample every other frame for preview (2x faster)
+        let frameInterval = Int(speedFactor) * 2
         let framesToSample = min(totalFrames / frameInterval, maxFrames)
 
         guard framesToSample > 0 else {
             throw PreviewGeneratorError.invalidParameters
         }
 
+        // Downsample height: use half resolution (2x faster)
+        let downsampledHeight = height / 2
+
         print("Preview generation started:")
         print("  Duration: \(String(format: "%.2f", duration))s")
         print("  Total frames in range: \(totalFrames)")
         print("  Speed factor: \(speedFactor)x")
+        print("  Frame interval (with downsampling): \(frameInterval)")
         print("  Frames to sample: \(framesToSample)")
         print("  Sampling column: x=\(samplingX)")
+        print("  Output height (downsampled): \(downsampledHeight)")
 
         // Setup AVAssetReader
         let setupStart = CFAbsoluteTimeGetCurrent()
@@ -149,7 +156,8 @@ class PreviewGenerator {
                 if let column = extractColumnFromSampleBuffer(
                     sampleBuffer,
                     x: samplingX,
-                    height: height
+                    fullHeight: height,
+                    downsampledHeight: downsampledHeight
                 ) {
                     columnBuffers.append(column)
                     column.withUnsafeBytes { ptr in
@@ -180,7 +188,7 @@ class PreviewGenerator {
 
         // Assemble preview image
         let assembleStart = CFAbsoluteTimeGetCurrent()
-        let previewImage = try assembleColumnsOptimized(columnBuffers, height: height)
+        let previewImage = try assembleColumnsOptimized(columnBuffers, height: downsampledHeight)
         let assembleTime = CFAbsoluteTimeGetCurrent() - assembleStart
         print("  Assembly time: \(String(format: "%.3f", assembleTime))s")
 
@@ -191,16 +199,18 @@ class PreviewGenerator {
         return previewImage
     }
 
-    /// Extracts a single column from a sample buffer
+    /// Extracts a single column from a sample buffer with downsampling
     /// - Parameters:
     ///   - sampleBuffer: The sample buffer containing the frame
     ///   - x: The x-coordinate of the column to extract
-    ///   - height: Expected height of the image
-    /// - Returns: Data containing the column pixels (4 bytes per pixel)
+    ///   - fullHeight: Full height of the source image
+    ///   - downsampledHeight: Target downsampled height (samples every other row)
+    /// - Returns: Data containing the downsampled column pixels (4 bytes per pixel)
     private static func extractColumnFromSampleBuffer(
         _ sampleBuffer: CMSampleBuffer,
         x: Int,
-        height: Int
+        fullHeight: Int,
+        downsampledHeight: Int
     ) -> Data? {
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return nil
@@ -220,14 +230,14 @@ class PreviewGenerator {
         let pixelWidth = CVPixelBufferGetWidth(imageBuffer)
 
         // Validate dimensions
-        guard x < pixelWidth, pixelHeight == height else {
+        guard x < pixelWidth, pixelHeight == fullHeight else {
             return nil
         }
 
-        // Extract column directly from pixel buffer
+        // Extract column directly from pixel buffer, sampling every other row
         // Each pixel is 4 bytes (BGRA)
         let bytesPerPixel = 4
-        var columnData = Data(count: height * bytesPerPixel)
+        var columnData = Data(count: downsampledHeight * bytesPerPixel)
 
         columnData.withUnsafeMutableBytes { columnPtr in
             guard let columnBase = columnPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
@@ -236,9 +246,10 @@ class PreviewGenerator {
 
             let srcPtr = baseAddress.assumingMemoryBound(to: UInt8.self)
 
-            // Copy one pixel from each row
-            for y in 0..<height {
-                let srcOffset = y * bytesPerRow + x * bytesPerPixel
+            // Copy one pixel from every other row (0, 2, 4, 6...)
+            for y in 0..<downsampledHeight {
+                let srcY = y * 2 // Sample every other row
+                let srcOffset = srcY * bytesPerRow + x * bytesPerPixel
                 let dstOffset = y * bytesPerPixel
 
                 // Copy 4 bytes (BGRA)
@@ -339,14 +350,15 @@ class PreviewGenerator {
         speedFactor: Double,
         xPosition: Int? = nil
     ) async throws -> NSImage {
-        // Generate with good frame count for preview (1500 frames = 1500px wide)
+        // Generate with good frame count for preview (1000 frames = ~1000px wide)
+        // Balanced between preview quality and generation speed
         return try await generatePreview(
             from: asset,
             startTime: startTime,
             endTime: endTime,
             speedFactor: speedFactor,
             xPosition: xPosition,
-            maxFrames: 1500
+            maxFrames: 1000
         )
     }
 }
