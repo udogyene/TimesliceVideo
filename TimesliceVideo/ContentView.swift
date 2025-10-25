@@ -204,13 +204,22 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                     }
                 } else if let image = viewModel.timeslicePreview {
-                    ScrollView(.horizontal) {
-                        Image(nsImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(height: 280)
-                            .cornerRadius(6)
+                    VStack {
+                        Spacer()
+                        GeometryReader { geometry in
+                            ScrollView(.horizontal, showsIndicators: true) {
+                                Image(nsImage: image)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(height: 280)
+                                    .frame(minWidth: geometry.size.width)
+                                    .cornerRadius(6)
+                            }
+                        }
+                        .frame(height: 280)
+                        Spacer()
                     }
+                    .frame(height: 300)
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "photo.stack")
