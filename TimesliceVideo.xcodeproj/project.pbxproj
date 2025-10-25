@@ -14,6 +14,7 @@
 		A1000005 /* VideoParameters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000006 /* VideoParameters.swift */; };
 		A1000006 /* VideoProcessorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007 /* VideoProcessorViewModel.swift */; };
 		A1000007 /* PreviewGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008 /* PreviewGenerator.swift */; };
+		A1000008 /* TimesliceProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* TimesliceProcessor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +27,7 @@
 		A2000006 /* VideoParameters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoParameters.swift; sourceTree = "<group>"; };
 		A2000007 /* VideoProcessorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoProcessorViewModel.swift; sourceTree = "<group>"; };
 		A2000008 /* PreviewGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewGenerator.swift; sourceTree = "<group>"; };
+		A2000009 /* TimesliceProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesliceProcessor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,6 +84,7 @@
 			children = (
 				A2000005 /* VideoLoader.swift */,
 				A2000008 /* PreviewGenerator.swift */,
+				A2000009 /* TimesliceProcessor.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -169,6 +172,7 @@
 				A1000005 /* VideoParameters.swift in Sources */,
 				A1000006 /* VideoProcessorViewModel.swift in Sources */,
 				A1000007 /* PreviewGenerator.swift in Sources */,
+				A1000008 /* TimesliceProcessor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -36,6 +36,15 @@ class VideoProcessorViewModel: ObservableObject {
     /// Error message to display to the user
     @Published var errorMessage: String?
 
+    /// Whether full video processing is in progress
+    @Published var isProcessingFullVideo: Bool = false
+
+    /// Progress of full video processing (0.0 to 1.0)
+    @Published var processingProgress: Double = 0.0
+
+    /// Output URL of the processed video (when complete)
+    @Published var outputVideoURL: URL?
+
     // MARK: - Private Properties
 
     /// Task for debounced preview generation
@@ -43,6 +52,9 @@ class VideoProcessorViewModel: ObservableObject {
 
     /// Debounce delay in seconds
     private let previewDebounceDelay: TimeInterval = 0.5
+
+    /// Current timeslice processor instance
+    private var timesliceProcessor: TimesliceProcessor?
 
     // MARK: - Computed Properties
 
@@ -234,20 +246,75 @@ class VideoProcessorViewModel: ObservableObject {
     func generateOutput() {
         guard canGenerateOutput else { return }
 
-        // Placeholder for actual processing logic
-        processingState = .processing(progress: 0.0)
+        // Show save dialog
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.mpeg4Movie]
+        savePanel.nameFieldStringValue = "timeslice_output.mp4"
+        savePanel.message = "Choose where to save the timeslice video"
+        savePanel.prompt = "Save"
 
-        // TODO: Implement actual video processing
-        print("Generate output called")
-        print("Video: \(videoURL?.path ?? "none")")
-        print("Start time: \(processingParameters.startTime)s")
-        print("End time: \(processingParameters.endTime)s")
-        print("Speed factor: \(processingParameters.speedFactor)x")
-
-        // Simulate processing completion
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.processingState = .ready
+        if savePanel.runModal() == .OK {
+            if let outputURL = savePanel.url {
+                startProcessing(outputURL: outputURL)
+            }
         }
+    }
+
+    /// Starts the full video processing
+    private func startProcessing(outputURL: URL) {
+        guard let metadata = videoMetadata else { return }
+
+        isProcessingFullVideo = true
+        processingProgress = 0.0
+        processingState = .processing(progress: 0.0)
+        errorMessage = nil
+
+        timesliceProcessor = TimesliceProcessor()
+
+        Task {
+            do {
+                let result = try await timesliceProcessor?.processVideo(
+                    asset: metadata.asset,
+                    startTime: processingParameters.startTime,
+                    endTime: processingParameters.endTime,
+                    speedFactor: processingParameters.speedFactor,
+                    outputURL: outputURL,
+                    progressCallback: { [weak self] progress in
+                        guard let self = self else { return }
+                        Task { @MainActor [weak self] in
+                            guard let self = self else { return }
+                            self.processingProgress = progress
+                            self.processingState = .processing(progress: progress)
+                        }
+                    }
+                )
+
+                await MainActor.run {
+                    self.isProcessingFullVideo = false
+                    self.processingProgress = 1.0
+                    self.outputVideoURL = result
+                    self.processingState = .completed(outputURL: result!)
+                    print("Processing completed successfully!")
+                }
+
+            } catch {
+                await MainActor.run {
+                    self.isProcessingFullVideo = false
+                    self.processingProgress = 0.0
+                    self.errorMessage = error.localizedDescription
+                    self.processingState = .failed(error: error.localizedDescription)
+                    print("Processing failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Cancels the current video processing
+    func cancelProcessing() {
+        timesliceProcessor?.cancel()
+        isProcessingFullVideo = false
+        processingProgress = 0.0
+        processingState = .ready
     }
 
     // MARK: - Private Methods

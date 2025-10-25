@@ -312,36 +312,116 @@ struct ContentView: View {
 
     private var generateButtonSection: some View {
         VStack(spacing: 12) {
-            Button(action: {
-                viewModel.generateOutput()
-            }) {
-                HStack(spacing: 8) {
-                    if viewModel.processingState.isProcessing {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .frame(width: 16, height: 16)
-                    } else {
+            if viewModel.isProcessingFullVideo {
+                // Processing UI
+                VStack(spacing: 12) {
+                    HStack {
+                        Text("Processing Video")
+                            .font(.system(size: 14, weight: .semibold))
+                        Spacer()
+                        Text("\(Int(viewModel.processingProgress * 100))%")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+
+                    ProgressView(value: viewModel.processingProgress, total: 1.0)
+                        .progressViewStyle(.linear)
+
+                    Button(action: {
+                        viewModel.cancelProcessing()
+                    }) {
+                        Text("Cancel")
+                            .font(.system(size: 13))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(NSColor.controlBackgroundColor))
+                )
+            } else {
+                // Generate button
+                Button(action: {
+                    viewModel.generateOutput()
+                }) {
+                    HStack(spacing: 8) {
                         Image(systemName: "wand.and.stars")
                             .font(.system(size: 14))
+                        Text("Generate Output Video")
+                            .font(.system(size: 14, weight: .semibold))
                     }
-                    Text(viewModel.processingState.isProcessing ? "Processing..." : "Generate Output")
-                        .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!viewModel.canGenerateOutput)
-            .controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .disabled(!viewModel.canGenerateOutput)
+                .controlSize(.large)
 
-            if !viewModel.hasVideoLoaded {
-                Text("Please select a video file to continue")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            } else if !viewModel.processingParameters.isValid {
-                Text("Please adjust parameters to valid values")
-                    .font(.system(size: 11))
-                    .foregroundColor(.orange)
+                if !viewModel.hasVideoLoaded {
+                    Text("Please select a video file to continue")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                } else if !viewModel.processingParameters.isValid {
+                    Text("Please adjust parameters to valid values")
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
+                }
+
+                // Success message
+                if case .completed(let outputURL) = viewModel.processingState {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Video saved successfully!")
+                                .font(.system(size: 13, weight: .medium))
+                            Text(outputURL.lastPathComponent)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Button(action: {
+                            NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                        }) {
+                            Text("Show in Finder")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(.link)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.green.opacity(0.1))
+                    )
+                }
+
+                // Error message
+                if case .failed(let error) = viewModel.processingState {
+                    HStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(error)
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Button(action: {
+                            viewModel.processingState = .ready
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.red.opacity(0.1))
+                    )
+                }
             }
         }
         .padding(.bottom, 10)
