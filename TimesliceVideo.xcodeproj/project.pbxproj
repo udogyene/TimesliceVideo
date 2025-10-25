@@ -15,6 +15,7 @@
 		A1000006 /* VideoProcessorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007 /* VideoProcessorViewModel.swift */; };
 		A1000007 /* PreviewGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008 /* PreviewGenerator.swift */; };
 		A1000008 /* TimesliceProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* TimesliceProcessor.swift */; };
+		V5EE95C2 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VB1DEFA5 /* VideoPlayerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 		A2000007 /* VideoProcessorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoProcessorViewModel.swift; sourceTree = "<group>"; };
 		A2000008 /* PreviewGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewGenerator.swift; sourceTree = "<group>"; };
 		A2000009 /* TimesliceProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesliceProcessor.swift; sourceTree = "<group>"; };
+		VB1DEFA5 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -54,6 +56,7 @@
 			children = (
 				A2000001 /* TimesliceVideoApp.swift */,
 				A2000002 /* ContentView.swift */,
+								V5268D79 /* Views */,
 				A5000004 /* ViewModels */,
 				A5000005 /* Models */,
 				A5000006 /* Services */,
@@ -69,6 +72,14 @@
 				A2000007 /* VideoProcessorViewModel.swift */,
 			);
 			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		V5268D79 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				VB1DEFA5 /* VideoPlayerView.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 		A5000005 /* Models */ = {
@@ -173,7 +184,8 @@
 				A1000006 /* VideoProcessorViewModel.swift in Sources */,
 				A1000007 /* PreviewGenerator.swift in Sources */,
 				A1000008 /* TimesliceProcessor.swift in Sources */,
-			);
+			
+				V5EE95C2 /* VideoPlayerView.swift in Sources */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */

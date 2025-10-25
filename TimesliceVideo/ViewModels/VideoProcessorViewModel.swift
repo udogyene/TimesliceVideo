@@ -45,6 +45,9 @@ class VideoProcessorViewModel: ObservableObject {
     /// Output URL of the processed video (when complete)
     @Published var outputVideoURL: URL?
 
+    /// Video player for source video preview
+    @Published var videoPlayer: AVPlayer?
+
     // MARK: - Private Properties
 
     /// Task for debounced preview generation
@@ -123,6 +126,10 @@ class VideoProcessorViewModel: ObservableObject {
         processingState = .idle
         errorMessage = nil
         previewGenerationTask?.cancel()
+
+        // Clean up video player
+        videoPlayer?.pause()
+        videoPlayer = nil
     }
 
     /// Updates the start time parameter
@@ -327,6 +334,10 @@ class VideoProcessorViewModel: ObservableObject {
 
         // Update state
         self.processingState = .ready
+
+        // Create video player for preview
+        let playerItem = AVPlayerItem(asset: metadata.asset)
+        self.videoPlayer = AVPlayer(playerItem: playerItem)
 
         // Generate initial thumbnail
         self.updateThumbnail(at: 0.0)

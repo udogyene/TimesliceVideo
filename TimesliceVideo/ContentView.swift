@@ -40,6 +40,12 @@ struct ContentView: View {
                     videoInfoSection(metadata: metadata)
                 }
 
+                // Video Playback Preview Section
+                if let player = viewModel.videoPlayer {
+                    Divider()
+                    videoPlaybackSection(player: player)
+                }
+
                 // Preview Section
                 if viewModel.hasVideoLoaded {
                     Divider()
@@ -434,6 +440,20 @@ struct ContentView: View {
             }
         }
         .padding(.bottom, 10)
+    }
+
+    // MARK: - Video Playback Section
+
+    private func videoPlaybackSection(player: AVPlayer) -> some View {
+        VStack(spacing: 16) {
+            Text("Video Preview")
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VideoPlayerView(player: player)
+                .frame(height: 300)
+                .cornerRadius(8)
+        }
     }
 }
 
