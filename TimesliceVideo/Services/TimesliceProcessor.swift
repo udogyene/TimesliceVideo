@@ -40,6 +40,33 @@ enum TimesliceProcessorError: LocalizedError {
     }
 }
 
+/// Thread-safe frame buffer for parallel frame assembly
+private class FrameBuffer {
+    private var frames: [Int: CVPixelBuffer] = [:]
+    private let lock = NSLock()
+
+    func store(_ frame: CVPixelBuffer, at index: Int) {
+        lock.lock()
+        frames[index] = frame
+        lock.unlock()
+    }
+
+    func retrieve(at index: Int) -> CVPixelBuffer? {
+        lock.lock()
+        let frame = frames[index]
+        frames[index] = nil // Free memory
+        lock.unlock()
+        return frame
+    }
+
+    func contains(index: Int) -> Bool {
+        lock.lock()
+        let exists = frames[index] != nil
+        lock.unlock()
+        return exists
+    }
+}
+
 /// Service responsible for processing full timeslice video transformation
 class TimesliceProcessor {
 
@@ -100,11 +127,11 @@ class TimesliceProcessor {
         print("  Frames to sample: \(framesToSample)")
         print("  Output dimensions: \(framesToSample) × \(height)")
 
-        // Step 1: Read all frame columns into memory (organized by frame)
-        print("\n--- Phase 1: Extracting columns from source frames ---")
+        // Step 1: Read video ONCE (single pass through video)
+        print("\n--- Phase 1: Reading video frames ---")
         let extractStart = CFAbsoluteTimeGetCurrent()
 
-        let frameColumns = try await extractAllFrameColumns(
+        let (flatBuffer, actualFrameCount) = try await extractAllFrames(
             asset: asset,
             videoTrack: videoTrack,
             startTime: startTime,
@@ -114,28 +141,42 @@ class TimesliceProcessor {
             frameInterval: frameInterval,
             framesToSample: framesToSample,
             progressCallback: { progress in
-                progressCallback(progress * 0.5) // First 50% is extraction
+                progressCallback(progress * 0.4) // First 40% is extraction
             }
         )
 
         guard !isCancelled else { throw TimesliceProcessorError.cancelled }
 
         let extractTime = CFAbsoluteTimeGetCurrent() - extractStart
-        print("Extraction complete: \(String(format: "%.2f", extractTime))s")
-        print("Extracted \(frameColumns.count) frames × \(width) columns")
+        let extractFps = Double(actualFrameCount) / extractTime
+        print("Video read complete: \(String(format: "%.2f", extractTime))s (\(String(format: "%.1f", extractFps)) fps)")
+        print("  Read \(actualFrameCount) frames into \(String(format: "%.2f", Double(flatBuffer.count) / (1024*1024*1024))) GB buffer")
 
-        // Step 2: Write output video
-        print("\n--- Phase 2: Generating output video ---")
+        // Step 2: Transpose from row-major to column-major for output assembly
+        print("\n--- Phase 2: Transposing to column-major order ---")
+        let transposeStart = CFAbsoluteTimeGetCurrent()
+
+        let columnsByX = transposeFromFlatBuffer(flatBuffer: flatBuffer, width: width, height: height, numFrames: actualFrameCount)
+        progressCallback(0.5) // 50% after transpose
+
+        guard !isCancelled else { throw TimesliceProcessorError.cancelled }
+
+        let transposeTime = CFAbsoluteTimeGetCurrent() - transposeStart
+        print("Transpose complete: \(String(format: "%.2f", transposeTime))s")
+        print("  Organized \(width) x-positions × \(framesToSample) frames")
+
+        // Step 3: Write output video
+        print("\n--- Phase 3: Generating output video ---")
         let writeStart = CFAbsoluteTimeGetCurrent()
 
         try await writeOutputVideo(
-            frameColumns: frameColumns,
+            columnsByX: columnsByX,
             outputURL: outputURL,
             width: framesToSample,
             height: height,
             frameRate: 30.0,
             progressCallback: { progress in
-                progressCallback(0.5 + progress * 0.5) // Second 50% is writing
+                progressCallback(0.5 + progress * 0.5) // Last 50% is writing
             }
         )
 
@@ -160,9 +201,9 @@ class TimesliceProcessor {
 
     // MARK: - Private Methods
 
-    /// Extracts all columns from all frames in the time range
-    /// Returns array of frames, where each frame is an array of column data
-    private func extractAllFrameColumns(
+    /// Extracts all frames into a flat buffer (row-major order)
+    /// Returns the flat buffer and actual frame count
+    private func extractAllFrames(
         asset: AVAsset,
         videoTrack: AVAssetTrack,
         startTime: Double,
@@ -172,7 +213,7 @@ class TimesliceProcessor {
         frameInterval: Int,
         framesToSample: Int,
         progressCallback: @escaping ProgressCallback
-    ) async throws -> [[Data]] {
+    ) async throws -> (Data, Int) {
         let timeRange = CMTimeRange(
             start: CMTime(seconds: startTime, preferredTimescale: 600),
             end: CMTime(seconds: endTime, preferredTimescale: 600)
@@ -182,6 +223,7 @@ class TimesliceProcessor {
             throw TimesliceProcessorError.readerSetupFailed("Could not create asset reader")
         }
 
+        // Use BGRA format for color output
         let outputSettings: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferMetalCompatibilityKey as String: false
@@ -196,9 +238,16 @@ class TimesliceProcessor {
             throw TimesliceProcessorError.readerSetupFailed(error)
         }
 
-        var frameColumns: [[Data]] = []
+        // PRE-ALLOCATE single contiguous buffer - eliminates ~2 million allocations!
+        let bytesPerPixel = 4 // BGRA = 4 bytes per pixel
+        let totalBytes = width * height * framesToSample * bytesPerPixel
+        var flatBuffer = Data(count: totalBytes)
+
+        print("  Allocated single buffer: \(String(format: "%.2f", Double(totalBytes) / (1024*1024*1024))) GB")
+
         var frameIndex = 0
         var sampledCount = 0
+        let extractionStart = CFAbsoluteTimeGetCurrent()
 
         while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
             defer { CMSampleBufferInvalidate(sampleBuffer) }
@@ -210,15 +259,27 @@ class TimesliceProcessor {
 
             // Sample frames based on speed factor
             if frameIndex % frameInterval == 0 && sampledCount < framesToSample {
-                if let columns = extractAllColumnsFromFrame(sampleBuffer, width: width, height: height) {
-                    frameColumns.append(columns)
-                    sampledCount += 1
+                // Extract directly into flat buffer at calculated offset
+                extractAllColumnsIntoBuffer(
+                    sampleBuffer,
+                    width: width,
+                    height: height,
+                    frameIndex: sampledCount,
+                    buffer: &flatBuffer
+                )
+                sampledCount += 1
 
-                    // Update progress
-                    if sampledCount % 10 == 0 {
-                        let progress = Double(sampledCount) / Double(framesToSample)
-                        progressCallback(progress)
-                    }
+                // Update progress
+                if sampledCount % 10 == 0 {
+                    let progress = Double(sampledCount) / Double(framesToSample)
+                    progressCallback(progress)
+                }
+
+                // Log progress every 100 frames
+                if sampledCount % 100 == 0 {
+                    let elapsed = CFAbsoluteTimeGetCurrent() - extractionStart
+                    let fps = Double(sampledCount) / elapsed
+                    print("  Extracted \(sampledCount)/\(framesToSample) frames (\(String(format: "%.1f", fps)) fps)")
                 }
             }
 
@@ -230,59 +291,111 @@ class TimesliceProcessor {
         }
 
         reader.cancelReading()
-        return frameColumns
+
+        return (flatBuffer, sampledCount)
     }
 
-    /// Extracts all columns from a single frame
-    /// Returns array of column data (one per x-position)
-    private func extractAllColumnsFromFrame(_ sampleBuffer: CMSampleBuffer, width: Int, height: Int) -> [Data]? {
+    /// Extracts all columns from a frame directly into flat buffer (zero intermediate allocations!)
+    private func extractAllColumnsIntoBuffer(
+        _ sampleBuffer: CMSampleBuffer,
+        width: Int,
+        height: Int,
+        frameIndex: Int,
+        buffer: inout Data
+    ) {
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            return nil
+            return
         }
 
         CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly) }
 
         guard let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer) else {
-            return nil
+            return
         }
 
         let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
-        let bytesPerPixel = 4
+        let bytesPerPixel = 4 // BGRA
         let srcPtr = baseAddress.assumingMemoryBound(to: UInt8.self)
 
-        var columns: [Data] = []
-
-        // Extract each column
-        for x in 0..<width {
-            var columnData = Data(count: height * bytesPerPixel)
-
-            columnData.withUnsafeMutableBytes { columnPtr in
-                guard let columnBase = columnPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                    return
-                }
-
-                for y in 0..<height {
-                    let srcOffset = y * bytesPerRow + x * bytesPerPixel
-                    let dstOffset = y * bytesPerPixel
-
-                    // Copy BGRA pixel
-                    columnBase[dstOffset] = srcPtr[srcOffset]
-                    columnBase[dstOffset + 1] = srcPtr[srcOffset + 1]
-                    columnBase[dstOffset + 2] = srcPtr[srcOffset + 2]
-                    columnBase[dstOffset + 3] = srcPtr[srcOffset + 3]
-                }
+        // Copy entire frame as-is (row-major BGRA order)
+        // We'll handle the transpose later. This is MUCH faster than column extraction.
+        buffer.withUnsafeMutableBytes { bufferPtr in
+            guard let bufferBase = bufferPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return
             }
 
-            columns.append(columnData)
-        }
+            let baseOffset = frameIndex * width * height * bytesPerPixel
+            let dstPtr = bufferBase + baseOffset
 
-        return columns
+            // Copy entire frame row by row (sequential, cache-friendly)
+            for y in 0..<height {
+                let srcRow = srcPtr + (y * bytesPerRow)
+                let dstRow = dstPtr + (y * width * bytesPerPixel)
+                // Use memcpy for bulk transfer (fastest possible)
+                memcpy(dstRow, srcRow, width * bytesPerPixel)
+            }
+        }
     }
 
-    /// Writes the output video from extracted frame columns
+    /// Transposes from flat buffer (row-major) to column-major for output assembly
+    /// Converts frames[row][col] to columns[x][frame_data]
+    private func transposeFromFlatBuffer(flatBuffer: Data, width: Int, height: Int, numFrames: Int) -> [[Data]] {
+        let bytesPerPixel = 4 // BGRA
+
+        // Pre-allocate storage for all columns
+        var columnsByX: [[Data]] = Array(repeating: [], count: width)
+        for x in 0..<width {
+            columnsByX[x] = Array(repeating: Data(), count: numFrames)
+        }
+
+        flatBuffer.withUnsafeBytes { bufferPtr in
+            guard let bufferBase = bufferPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return
+            }
+
+            // Process frames in parallel batches
+            DispatchQueue.concurrentPerform(iterations: numFrames) { frame in
+                let frameOffset = frame * width * height * bytesPerPixel
+
+                // Extract all columns for this frame
+                for x in 0..<width {
+                    var columnData = Data(count: height * bytesPerPixel)
+
+                    columnData.withUnsafeMutableBytes { columnPtr in
+                        guard let columnBase = columnPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                            return
+                        }
+
+                        // Extract column from row-major BGRA data
+                        for y in 0..<height {
+                            let srcIndex = frameOffset + (y * width + x) * bytesPerPixel
+                            let dstIndex = y * bytesPerPixel
+
+                            // Copy 4 bytes (BGRA pixel)
+                            columnBase[dstIndex] = bufferBase[srcIndex]
+                            columnBase[dstIndex + 1] = bufferBase[srcIndex + 1]
+                            columnBase[dstIndex + 2] = bufferBase[srcIndex + 2]
+                            columnBase[dstIndex + 3] = bufferBase[srcIndex + 3]
+                        }
+                    }
+
+                    columnsByX[x][frame] = columnData
+                }
+
+                // Log progress every 100 frames
+                if frame % 100 == 0 {
+                    print("  Transposed frame \(frame)/\(numFrames)")
+                }
+            }
+        }
+
+        return columnsByX
+    }
+
+    /// Writes the output video from transposed column data (organized by x-position)
     private func writeOutputVideo(
-        frameColumns: [[Data]],
+        columnsByX: [[Data]],
         outputURL: URL,
         width: Int,
         height: Int,
@@ -311,6 +424,7 @@ class TimesliceProcessor {
         let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         writerInput.expectsMediaDataInRealTime = false
 
+        // Use BGRA format for output (color)
         let sourcePixelBufferAttributes: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: width,
@@ -330,50 +444,96 @@ class TimesliceProcessor {
 
         writer.startSession(atSourceTime: .zero)
 
-        let totalOutputFrames = frameColumns[0].count // Number of columns in each source frame
-        var frameNumber = 0
+        let totalOutputFrames = width // One output frame per x-position
+        let processStart = CFAbsoluteTimeGetCurrent()
+
+        // Parallel frame assembly configuration
+        let batchSize = 20 // Assemble frames in batches
+        let frameBuffer = FrameBuffer()
+        let encodingQueue = DispatchQueue(label: "videoWriter")
+
+        var nextFrameToEncode = 0
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            writerInput.requestMediaDataWhenReady(on: DispatchQueue(label: "videoWriter")) { [weak self] in
+            writerInput.requestMediaDataWhenReady(on: encodingQueue) { [weak self] in
                 guard let self = self else {
                     continuation.resume()
                     return
                 }
 
-                while writerInput.isReadyForMoreMediaData && frameNumber < totalOutputFrames {
+                while writerInput.isReadyForMoreMediaData && nextFrameToEncode < totalOutputFrames {
                     guard !self.isCancelled else {
                         writer.cancelWriting()
                         continuation.resume()
                         return
                     }
 
-                    // Create output frame from column x across all source frames
-                    if let pixelBuffer = self.createOutputFrame(
-                        frameColumns: frameColumns,
-                        columnIndex: frameNumber,
-                        width: width,
-                        height: height,
-                        pixelBufferPool: pixelBufferAdaptor.pixelBufferPool
-                    ) {
+                    // Pre-assemble next batch of frames in parallel if needed
+                    let currentBatchStart = (nextFrameToEncode / batchSize) * batchSize
+                    let nextBatchStart = currentBatchStart + batchSize
+
+                    let hasCurrentFrame = frameBuffer.contains(index: nextFrameToEncode)
+                    let needsNextBatch = !frameBuffer.contains(index: nextBatchStart) && nextBatchStart < totalOutputFrames
+
+                    // Trigger assembly of next batch
+                    if needsNextBatch {
+                        let batchStart = nextBatchStart
+                        let batchEnd = min(batchStart + batchSize, totalOutputFrames)
+
+                        DispatchQueue.concurrentPerform(iterations: batchEnd - batchStart) { index in
+                            let frameIndex = batchStart + index
+
+                            if let pixelBuffer = self.createOutputFrame(
+                                columnsForX: columnsByX[frameIndex],
+                                width: width,
+                                height: height,
+                                pixelBufferPool: pixelBufferAdaptor.pixelBufferPool
+                            ) {
+                                frameBuffer.store(pixelBuffer, at: frameIndex)
+                            }
+                        }
+                    }
+
+                    // Wait for current frame if not ready yet
+                    if !hasCurrentFrame {
+                        let frameIndex = nextFrameToEncode
+                        if let pixelBuffer = self.createOutputFrame(
+                            columnsForX: columnsByX[frameIndex],
+                            width: width,
+                            height: height,
+                            pixelBufferPool: pixelBufferAdaptor.pixelBufferPool
+                        ) {
+                            frameBuffer.store(pixelBuffer, at: frameIndex)
+                        }
+                    }
+
+                    // Encode current frame
+                    if let pixelBuffer = frameBuffer.retrieve(at: nextFrameToEncode) {
                         let presentationTime = CMTime(
-                            value: Int64(frameNumber),
+                            value: Int64(nextFrameToEncode),
                             timescale: Int32(frameRate)
                         )
 
                         pixelBufferAdaptor.append(pixelBuffer, withPresentationTime: presentationTime)
-                        frameNumber += 1
+                        nextFrameToEncode += 1
 
-                        // Update progress
-                        if frameNumber % 10 == 0 {
-                            let progress = Double(frameNumber) / Double(totalOutputFrames)
+                        // Update progress and log performance
+                        if nextFrameToEncode % 10 == 0 {
+                            let progress = Double(nextFrameToEncode) / Double(totalOutputFrames)
                             progressCallback(progress)
                         }
+
+                        if nextFrameToEncode % 100 == 0 {
+                            let elapsed = CFAbsoluteTimeGetCurrent() - processStart
+                            let fps = Double(nextFrameToEncode) / elapsed
+                            print("  Assembled \(nextFrameToEncode)/\(totalOutputFrames) frames (\(String(format: "%.1f", fps)) fps)")
+                        }
                     } else {
-                        frameNumber += 1
+                        nextFrameToEncode += 1
                     }
                 }
 
-                if frameNumber >= totalOutputFrames {
+                if nextFrameToEncode >= totalOutputFrames {
                     writerInput.markAsFinished()
                     writer.finishWriting {
                         continuation.resume()
@@ -383,10 +543,10 @@ class TimesliceProcessor {
         }
     }
 
-    /// Creates a single output frame by assembling column x from all source frames
+    /// Creates a single output frame by assembling columns horizontally (BGRA format)
+    /// All columns for a specific x-position are provided, making assembly efficient
     private func createOutputFrame(
-        frameColumns: [[Data]],
-        columnIndex: Int,
+        columnsForX: [Data],
         width: Int,
         height: Int,
         pixelBufferPool: CVPixelBufferPool?
@@ -409,11 +569,10 @@ class TimesliceProcessor {
         let bytesPerPixel = 4
         let dstPtr = baseAddress.assumingMemoryBound(to: UInt8.self)
 
-        // Copy column from each source frame into the output frame
-        for (frameIndex, columns) in frameColumns.enumerated() {
-            guard frameIndex < width, columnIndex < columns.count else { continue }
-
-            let columnData = columns[columnIndex]
+        // Copy each column into the output frame horizontally
+        // columnsForX contains all frames' columns for this x-position
+        for (frameIndex, columnData) in columnsForX.enumerated() {
+            guard frameIndex < width else { break }
 
             columnData.withUnsafeBytes { columnPtr in
                 guard let columnBase = columnPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
