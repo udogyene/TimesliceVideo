@@ -97,6 +97,7 @@ struct ProcessingParameters {
 enum ProcessingState: Equatable {
     case idle
     case loading
+    case preprocessing(progress: Double)
     case ready
     case processing(progress: Double)
     case completed(outputURL: URL)
@@ -104,6 +105,9 @@ enum ProcessingState: Equatable {
 
     var isProcessing: Bool {
         if case .processing = self {
+            return true
+        }
+        if case .preprocessing = self {
             return true
         }
         return false

@@ -327,6 +327,57 @@ class VideoProcessorViewModel: ObservableObject {
     // MARK: - Private Methods
 
     private func handleVideoLoaded(_ metadata: VideoMetadata) {
+        // Check if video needs preprocessing
+        if VideoPreprocessor.needsPreprocessing(duration: metadata.duration) {
+            Task {
+                await preprocessVideo(metadata: metadata)
+            }
+        } else {
+            self.finalizeVideoLoading(metadata: metadata)
+        }
+    }
+
+    private func preprocessVideo(metadata: VideoMetadata) async {
+        await MainActor.run {
+            self.processingState = .preprocessing(progress: 0.0)
+        }
+
+        print("Video requires preprocessing (duration: \(metadata.duration)s > \(VideoPreprocessor.maxDuration)s)")
+
+        do {
+            let preprocessedURL = try await VideoPreprocessor.preprocessLongVideo(
+                asset: metadata.asset,
+                originalURL: metadata.url,
+                progressCallback: { [weak self] progress in
+                    guard let self = self else { return }
+                    Task { @MainActor [weak self] in
+                        self?.processingState = .preprocessing(progress: progress)
+                    }
+                }
+            )
+
+            // Load the preprocessed video
+            VideoLoader.loadVideo(from: preprocessedURL) { [weak self] result in
+                guard let self = self else { return }
+
+                switch result {
+                case .success(let preprocessedMetadata):
+                    self.finalizeVideoLoading(metadata: preprocessedMetadata)
+
+                case .failure(let error):
+                    self.handleVideoLoadError(error)
+                }
+            }
+
+        } catch {
+            await MainActor.run {
+                self.errorMessage = "Failed to preprocess video: \(error.localizedDescription)"
+                self.processingState = .failed(error: error.localizedDescription)
+            }
+        }
+    }
+
+    private func finalizeVideoLoading(metadata: VideoMetadata) {
         self.videoMetadata = metadata
 
         // Initialize processing parameters based on video metadata

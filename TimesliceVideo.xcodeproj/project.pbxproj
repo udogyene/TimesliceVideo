@@ -15,11 +15,11 @@
 		A1000006 /* VideoProcessorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007 /* VideoProcessorViewModel.swift */; };
 		A1000007 /* PreviewGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008 /* PreviewGenerator.swift */; };
 		A1000008 /* TimesliceProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* TimesliceProcessor.swift */; };
+		A5F98DAA2EADDB8E00B67A97 /* VideoPreprocessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F98DA92EADDB8E00B67A97 /* VideoPreprocessor.swift */; };
 		V5EE95C2 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VB1DEFA5 /* VideoPlayerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A3000001 /* TimesliceVideo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TimesliceVideo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A2000001 /* TimesliceVideoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesliceVideoApp.swift; sourceTree = "<group>"; };
 		A2000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A2000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -29,6 +29,8 @@
 		A2000007 /* VideoProcessorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoProcessorViewModel.swift; sourceTree = "<group>"; };
 		A2000008 /* PreviewGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewGenerator.swift; sourceTree = "<group>"; };
 		A2000009 /* TimesliceProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesliceProcessor.swift; sourceTree = "<group>"; };
+		A3000001 /* TimesliceVideo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TimesliceVideo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A5F98DA92EADDB8E00B67A97 /* VideoPreprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPreprocessor.swift; sourceTree = "<group>"; };
 		VB1DEFA5 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -56,7 +58,7 @@
 			children = (
 				A2000001 /* TimesliceVideoApp.swift */,
 				A2000002 /* ContentView.swift */,
-								V5268D79 /* Views */,
+				V5268D79 /* Views */,
 				A5000004 /* ViewModels */,
 				A5000005 /* Models */,
 				A5000006 /* Services */,
@@ -66,20 +68,20 @@
 			path = TimesliceVideo;
 			sourceTree = "<group>";
 		};
+		A5000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A3000001 /* TimesliceVideo.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
 		A5000004 /* ViewModels */ = {
 			isa = PBXGroup;
 			children = (
 				A2000007 /* VideoProcessorViewModel.swift */,
 			);
 			path = ViewModels;
-			sourceTree = "<group>";
-		};
-		V5268D79 /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				VB1DEFA5 /* VideoPlayerView.swift */,
-			);
-			path = Views;
 			sourceTree = "<group>";
 		};
 		A5000005 /* Models */ = {
@@ -93,6 +95,7 @@
 		A5000006 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				A5F98DA92EADDB8E00B67A97 /* VideoPreprocessor.swift */,
 				A2000005 /* VideoLoader.swift */,
 				A2000008 /* PreviewGenerator.swift */,
 				A2000009 /* TimesliceProcessor.swift */,
@@ -100,12 +103,12 @@
 			path = Services;
 			sourceTree = "<group>";
 		};
-		A5000003 /* Products */ = {
+		V5268D79 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				A3000001 /* TimesliceVideo.app */,
+				VB1DEFA5 /* VideoPlayerView.swift */,
 			);
-			name = Products;
+			path = Views;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -183,9 +186,10 @@
 				A1000005 /* VideoParameters.swift in Sources */,
 				A1000006 /* VideoProcessorViewModel.swift in Sources */,
 				A1000007 /* PreviewGenerator.swift in Sources */,
+				A5F98DAA2EADDB8E00B67A97 /* VideoPreprocessor.swift in Sources */,
 				A1000008 /* TimesliceProcessor.swift in Sources */,
-			
-				V5EE95C2 /* VideoPlayerView.swift in Sources */,);
+				V5EE95C2 /* VideoPlayerView.swift in Sources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */

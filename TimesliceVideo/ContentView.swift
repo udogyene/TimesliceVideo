@@ -34,6 +34,11 @@ struct ContentView: View {
                     errorMessageView(message: errorMessage)
                 }
 
+                // Preprocessing Status
+                if case .preprocessing(let progress) = viewModel.processingState {
+                    preprocessingStatusView(progress: progress)
+                }
+
                 // Video Info Section (visible only when video is loaded)
                 if let metadata = viewModel.videoMetadata {
                     Divider()
@@ -86,7 +91,7 @@ struct ContentView: View {
                     }
                     Spacer()
 
-                    if viewModel.processingState == .loading {
+                    if viewModel.processingState == .loading || viewModel.processingState.isProcessing {
                         ProgressView()
                             .scaleEffect(0.6)
                             .frame(width: 16, height: 16)
@@ -108,7 +113,7 @@ struct ContentView: View {
                 )
             }
             .buttonStyle(.plain)
-            .disabled(viewModel.processingState == .loading)
+            .disabled(viewModel.processingState == .loading || viewModel.processingState.isProcessing)
         }
     }
 
@@ -134,6 +139,37 @@ struct ContentView: View {
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color.orange.opacity(0.1))
+        )
+    }
+
+    // MARK: - Preprocessing Status View
+
+    private func preprocessingStatusView(progress: Double) -> some View {
+        VStack(spacing: 12) {
+            HStack {
+                Image(systemName: "wand.and.stars")
+                    .foregroundColor(.blue)
+                Text("Preprocessing long video...")
+                    .font(.system(size: 13, weight: .medium))
+                Spacer()
+                Text("\(Int(progress * 100))%")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
+            }
+
+            ProgressView(value: progress, total: 1.0)
+                .progressViewStyle(.linear)
+
+            Text("Speeding up video to 5 minutes for optimal processing")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.blue.opacity(0.1))
         )
     }
 
