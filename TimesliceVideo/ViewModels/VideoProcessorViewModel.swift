@@ -186,7 +186,7 @@ class VideoProcessorViewModel: ObservableObject {
     }
 
     /// Schedules preview generation with debouncing
-    private func schedulePreviewGeneration() {
+    func schedulePreviewGeneration() {
         // Cancel any existing preview generation task
         previewGenerationTask?.cancel()
 

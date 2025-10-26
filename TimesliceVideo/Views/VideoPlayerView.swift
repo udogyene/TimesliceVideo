@@ -57,9 +57,14 @@ class ScrollPassthroughContainer: NSView {
     }
 }
 
-/// Custom video player controls
+/// Custom video player controls with start/end time markers
 struct VideoPlayerControls: View {
     let player: AVPlayer
+    @Binding var startTime: Double
+    @Binding var endTime: Double
+    let onStartTimeChanged: (Double) -> Void
+    let onEndTimeChanged: (Double) -> Void
+
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 1
@@ -68,45 +73,109 @@ struct VideoPlayerControls: View {
     let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Play/Pause button
-            Button(action: togglePlayPause) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 14))
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(.plain)
-
-            // Current time
-            Text(formatTime(currentTime))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.secondary)
-
-            // Progress slider
-            Slider(
-                value: Binding(
-                    get: { currentTime },
-                    set: { newValue in
-                        currentTime = newValue
-                        if !isDragging {
-                            seek(to: newValue)
-                        }
-                    }
-                ),
-                in: 0...duration,
-                onEditingChanged: { editing in
-                    isDragging = editing
-                    if !editing {
-                        seek(to: currentTime)
-                    }
+        VStack(spacing: 8) {
+            // Main playback controls
+            HStack(spacing: 12) {
+                // Play/Pause button
+                Button(action: togglePlayPause) {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 14))
+                        .frame(width: 20, height: 20)
                 }
-            )
-            .controlSize(.small)
+                .buttonStyle(.plain)
 
-            // Duration
-            Text(formatTime(duration))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.secondary)
+                // Current time
+                Text(formatTime(currentTime))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary)
+
+                // Progress slider with range overlay
+                ZStack(alignment: .leading) {
+                    // Background slider
+                    Slider(
+                        value: Binding(
+                            get: { currentTime },
+                            set: { newValue in
+                                currentTime = newValue
+                                if !isDragging {
+                                    seek(to: newValue)
+                                }
+                            }
+                        ),
+                        in: 0...duration,
+                        onEditingChanged: { editing in
+                            isDragging = editing
+                            if !editing {
+                                seek(to: currentTime)
+                            }
+                        }
+                    )
+                    .controlSize(.small)
+                }
+
+                // Duration
+                Text(formatTime(duration))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+
+            // Start/End time controls
+            HStack(spacing: 12) {
+                // Start time marker and slider
+                HStack(spacing: 6) {
+                    Image(systemName: "arrowtriangle.right.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.green)
+                    Text("Start")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Text(formatTime(startTime))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.green)
+                        .frame(width: 40, alignment: .trailing)
+                }
+
+                Slider(value: $startTime, in: 0...duration)
+                    .controlSize(.mini)
+                    .tint(.green)
+                    .onChange(of: startTime) { newValue in
+                        // Ensure start time doesn't exceed end time
+                        if newValue >= endTime {
+                            startTime = max(0, endTime - 0.1)
+                        }
+                        // Trigger preview regeneration
+                        onStartTimeChanged(startTime)
+                    }
+
+                Spacer().frame(width: 20)
+
+                // End time marker and slider
+                HStack(spacing: 6) {
+                    Image(systemName: "arrowtriangle.left.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.red)
+                    Text("End")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Text(formatTime(endTime))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.red)
+                        .frame(width: 40, alignment: .trailing)
+                }
+
+                Slider(value: $endTime, in: 0...duration)
+                    .controlSize(.mini)
+                    .tint(.red)
+                    .onChange(of: endTime) { newValue in
+                        // Ensure end time doesn't go below start time
+                        if newValue <= startTime {
+                            endTime = min(duration, startTime + 0.1)
+                        }
+                        // Trigger preview regeneration
+                        onEndTimeChanged(endTime)
+                    }
+            }
+            .padding(.top, 4)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

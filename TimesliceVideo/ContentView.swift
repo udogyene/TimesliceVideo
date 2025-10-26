@@ -454,7 +454,13 @@ struct ContentView: View {
                 VideoPlayerView(player: player)
                     .frame(height: 300)
 
-                VideoPlayerControls(player: player)
+                VideoPlayerControls(
+                    player: player,
+                    startTime: $viewModel.processingParameters.startTime,
+                    endTime: $viewModel.processingParameters.endTime,
+                    onStartTimeChanged: { _ in viewModel.schedulePreviewGeneration() },
+                    onEndTimeChanged: { _ in viewModel.schedulePreviewGeneration() }
+                )
             }
             .background(Color(NSColor.controlBackgroundColor))
             .cornerRadius(8)
