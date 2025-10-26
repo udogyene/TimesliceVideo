@@ -35,7 +35,6 @@ class VideoPreprocessor {
         print("  Original duration: \(duration)s")
         print("  Target duration: \(maxDuration)s")
         print("  Speed factor: \(speedFactor)x")
-        print("  Target frame rate: 30 fps")
 
         // Create temporary output URL
         let tempDir = FileManager.default.temporaryDirectory
@@ -76,33 +75,19 @@ class VideoPreprocessor {
             compositionAudioTrack.scaleTimeRange(timeRange, toDuration: scaledDuration)
         }
 
-        // Create video composition to control frame rate (30fps)
-        let videoComposition = AVMutableVideoComposition()
-        videoComposition.frameDuration = CMTime(value: 1, timescale: 30) // 30 fps
-
-        let naturalSize = try await videoTrack.load(.naturalSize)
-        videoComposition.renderSize = naturalSize
-
-        // Create instruction for the composition
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: scaledDuration)
-
-        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideoTrack)
-        instruction.layerInstructions = [layerInstruction]
-
-        videoComposition.instructions = [instruction]
-
         // Export the composition
+        // Use passthrough preset to avoid re-encoding (just remux with time scaling)
         guard let exportSession = AVAssetExportSession(
             asset: composition,
-            presetName: AVAssetExportPresetHighestQuality
+            presetName: AVAssetExportPresetPassthrough
         ) else {
             throw NSError(domain: "VideoPreprocessor", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
         }
 
         exportSession.outputURL = outputURL
         exportSession.outputFileType = .mp4
-        exportSession.videoComposition = videoComposition
+
+        print("Export session created with passthrough preset")
 
         // Monitor progress while exporting
         print("Starting export...")
@@ -119,13 +104,23 @@ class VideoPreprocessor {
 
             // Start the progress monitoring task
             group.addTask {
+                var lastProgress: Float = -1
                 while exportSession.status != .completed &&
                       exportSession.status != .failed &&
                       exportSession.status != .cancelled {
-                    let progress = Double(exportSession.progress)
-                    print("Export progress: \(Int(progress * 100))%")
+                    let progress = exportSession.progress
+
+                    // Only print if progress changed or if we're stuck at 0 (print less frequently)
+                    if progress != lastProgress || (progress == 0 && Int.random(in: 0..<50) == 0) {
+                        print("Export progress: \(Int(progress * 100))% (status: \(exportSession.status.rawValue))")
+                        if let error = exportSession.error {
+                            print("Export error detected: \(error.localizedDescription)")
+                        }
+                        lastProgress = progress
+                    }
+
                     await MainActor.run {
-                        progressCallback(progress)
+                        progressCallback(Double(progress))
                     }
                     try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
                 }
