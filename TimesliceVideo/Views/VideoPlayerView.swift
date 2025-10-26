@@ -57,6 +57,45 @@ class ScrollPassthroughContainer: NSView {
     }
 }
 
+/// Draggable range marker for start/end time
+struct RangeMarker: View {
+    let color: Color
+    @Binding var position: Double
+    let otherPosition: Double
+    let isStart: Bool
+    let duration: Double
+    let sliderWidth: CGFloat
+    let onChanged: (Double) -> Void
+
+    @State private var isDragging = false
+
+    var body: some View {
+        let xPosition = CGFloat(position / duration) * sliderWidth
+
+        Circle()
+            .fill(color)
+            .frame(width: 12, height: 12)
+            .overlay(
+                Circle()
+                    .stroke(Color.white, lineWidth: 2)
+            )
+            .shadow(radius: 2)
+            .offset(x: xPosition - 6)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        isDragging = true
+                        let newPosition = Double(value.location.x / sliderWidth) * duration
+                        let clampedPosition = max(0, min(duration, newPosition))
+                        onChanged(clampedPosition)
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                    }
+            )
+    }
+}
+
 /// Custom video player controls with start/end time markers
 struct VideoPlayerControls: View {
     let player: AVPlayer
@@ -89,29 +128,76 @@ struct VideoPlayerControls: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.secondary)
 
-                // Progress slider with range overlay
-                ZStack(alignment: .leading) {
-                    // Background slider
-                    Slider(
-                        value: Binding(
-                            get: { currentTime },
-                            set: { newValue in
-                                currentTime = newValue
-                                if !isDragging {
-                                    seek(to: newValue)
+                // Progress slider with range markers
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        // Background slider
+                        Slider(
+                            value: Binding(
+                                get: { currentTime },
+                                set: { newValue in
+                                    currentTime = newValue
+                                    if !isDragging {
+                                        seek(to: newValue)
+                                    }
+                                }
+                            ),
+                            in: 0...duration,
+                            onEditingChanged: { editing in
+                                isDragging = editing
+                                if !editing {
+                                    seek(to: currentTime)
                                 }
                             }
-                        ),
-                        in: 0...duration,
-                        onEditingChanged: { editing in
-                            isDragging = editing
-                            if !editing {
-                                seek(to: currentTime)
+                        )
+                        .controlSize(.small)
+
+                        // Range indicator overlay
+                        let sliderWidth = geometry.size.width
+                        let startX = CGFloat(startTime / duration) * sliderWidth
+                        let endX = CGFloat(endTime / duration) * sliderWidth
+
+                        // Range highlight
+                        Rectangle()
+                            .fill(Color.accentColor.opacity(0.2))
+                            .frame(width: max(0, endX - startX), height: 4)
+                            .offset(x: startX)
+                            .allowsHitTesting(false)
+
+                        // Start marker (green)
+                        RangeMarker(
+                            color: .green,
+                            position: $startTime,
+                            otherPosition: endTime,
+                            isStart: true,
+                            duration: duration,
+                            sliderWidth: sliderWidth,
+                            onChanged: { newValue in
+                                if newValue < endTime - 0.1 {
+                                    startTime = newValue
+                                    onStartTimeChanged(newValue)
+                                }
                             }
-                        }
-                    )
-                    .controlSize(.small)
+                        )
+
+                        // End marker (red)
+                        RangeMarker(
+                            color: .red,
+                            position: $endTime,
+                            otherPosition: startTime,
+                            isStart: false,
+                            duration: duration,
+                            sliderWidth: sliderWidth,
+                            onChanged: { newValue in
+                                if newValue > startTime + 0.1 {
+                                    endTime = newValue
+                                    onEndTimeChanged(newValue)
+                                }
+                            }
+                        )
+                    }
                 }
+                .frame(height: 20)
 
                 // Duration
                 Text(formatTime(duration))
@@ -119,61 +205,33 @@ struct VideoPlayerControls: View {
                     .foregroundColor(.secondary)
             }
 
-            // Start/End time controls
+            // Time labels
             HStack(spacing: 12) {
-                // Start time marker and slider
                 HStack(spacing: 6) {
                     Image(systemName: "arrowtriangle.right.fill")
                         .font(.system(size: 8))
                         .foregroundColor(.green)
-                    Text("Start")
+                    Text("Start:")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                     Text(formatTime(startTime))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.green)
-                        .frame(width: 40, alignment: .trailing)
                 }
 
-                Slider(value: $startTime, in: 0...duration)
-                    .controlSize(.mini)
-                    .tint(.green)
-                    .onChange(of: startTime) { newValue in
-                        // Ensure start time doesn't exceed end time
-                        if newValue >= endTime {
-                            startTime = max(0, endTime - 0.1)
-                        }
-                        // Trigger preview regeneration
-                        onStartTimeChanged(startTime)
-                    }
+                Spacer()
 
-                Spacer().frame(width: 20)
-
-                // End time marker and slider
                 HStack(spacing: 6) {
-                    Image(systemName: "arrowtriangle.left.fill")
-                        .font(.system(size: 8))
-                        .foregroundColor(.red)
-                    Text("End")
+                    Text("End:")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                     Text(formatTime(endTime))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.red)
-                        .frame(width: 40, alignment: .trailing)
+                    Image(systemName: "arrowtriangle.left.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.red)
                 }
-
-                Slider(value: $endTime, in: 0...duration)
-                    .controlSize(.mini)
-                    .tint(.red)
-                    .onChange(of: endTime) { newValue in
-                        // Ensure end time doesn't go below start time
-                        if newValue <= startTime {
-                            endTime = min(duration, startTime + 0.1)
-                        }
-                        // Trigger preview regeneration
-                        onEndTimeChanged(endTime)
-                    }
             }
             .padding(.top, 4)
         }
@@ -195,6 +253,11 @@ struct VideoPlayerControls: View {
             player.pause()
             isPlaying = false
         } else {
+            // If we're outside the range or at the end, start from beginning
+            if currentTime < startTime || currentTime >= endTime {
+                seek(to: startTime)
+                currentTime = startTime
+            }
             player.play()
             isPlaying = true
         }
@@ -208,6 +271,12 @@ struct VideoPlayerControls: View {
     private func updateTime() {
         if !isDragging {
             currentTime = player.currentTime().seconds
+
+            // Loop back to start time when reaching end time
+            if currentTime >= endTime && isPlaying {
+                seek(to: startTime)
+                currentTime = startTime
+            }
         }
     }
 
@@ -221,15 +290,16 @@ struct VideoPlayerControls: View {
     }
 
     private func observePlayerState() {
-        // Loop video when it ends
+        // Loop video when it reaches the actual end
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem,
             queue: .main
-        ) { [weak player] _ in
-            // Seek back to beginning and continue playing
-            player?.seek(to: .zero)
-            player?.play()
+        ) { [player, startTime] _ in
+            // Seek back to start time and continue playing
+            let cmTime = CMTime(seconds: startTime, preferredTimescale: 600)
+            player.seek(to: cmTime)
+            player.play()
         }
     }
 
