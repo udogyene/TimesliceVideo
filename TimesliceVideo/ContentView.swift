@@ -52,12 +52,6 @@ struct ContentView: View {
                     previewSection
                 }
 
-                // Controls Section (visible only when video is loaded)
-                if viewModel.hasVideoLoaded {
-                    Divider()
-                    controlsSection
-                }
-
                 // Generate Button
                 generateButtonSection
             }
@@ -247,82 +241,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Controls Section
-
-    private var controlsSection: some View {
-        VStack(spacing: 20) {
-            Text("Processing Parameters")
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(spacing: 20) {
-                // Start Time Slider
-                sliderControl(
-                    title: "Start Time",
-                    value: Binding(
-                        get: { viewModel.processingParameters.startTime },
-                        set: { viewModel.updateStartTime($0) }
-                    ),
-                    range: 0...(viewModel.videoMetadata?.duration ?? 1.0),
-                    unit: "s",
-                    format: "%.2f"
-                )
-
-                // End Time Slider
-                sliderControl(
-                    title: "End Time",
-                    value: Binding(
-                        get: { viewModel.processingParameters.endTime },
-                        set: { viewModel.updateEndTime($0) }
-                    ),
-                    range: 0...(viewModel.videoMetadata?.duration ?? 1.0),
-                    unit: "s",
-                    format: "%.2f"
-                )
-
-                // Speed Factor Slider
-                sliderControl(
-                    title: "Speed Factor",
-                    value: Binding(
-                        get: { viewModel.processingParameters.speedFactor },
-                        set: { viewModel.updateSpeedFactor($0) }
-                    ),
-                    range: 1.0...10.0,
-                    unit: "×",
-                    format: "%.1f"
-                )
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(NSColor.controlBackgroundColor))
-            )
-        }
-    }
-
-    private func sliderControl(
-        title: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        unit: String,
-        format: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 13, weight: .medium))
-                Spacer()
-                Text(String(format: format, value.wrappedValue) + " " + unit)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-            }
-
-            Slider(value: value, in: range)
-                .controlSize(.small)
-        }
-    }
-
     // MARK: - Generate Button Section
 
     private var generateButtonSection: some View {
@@ -461,6 +379,30 @@ struct ContentView: View {
                     onStartTimeChanged: { _ in viewModel.schedulePreviewGeneration() },
                     onEndTimeChanged: { _ in viewModel.schedulePreviewGeneration() }
                 )
+
+                // Speed Factor Slider
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Speed Factor")
+                            .font(.system(size: 13, weight: .medium))
+                        Spacer()
+                        Text(String(format: "%.1f", viewModel.processingParameters.speedFactor) + " ×")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+
+                    Slider(
+                        value: Binding(
+                            get: { viewModel.processingParameters.speedFactor },
+                            set: { viewModel.updateSpeedFactor($0) }
+                        ),
+                        in: 1.0...10.0
+                    )
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
             .background(Color(NSColor.controlBackgroundColor))
             .cornerRadius(8)
