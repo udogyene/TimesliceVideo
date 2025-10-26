@@ -72,15 +72,15 @@ struct RangeMarker: View {
     var body: some View {
         let xPosition = CGFloat(position / duration) * sliderWidth
 
-        Circle()
+        RoundedRectangle(cornerRadius: 2)
             .fill(color)
-            .frame(width: 12, height: 12)
+            .frame(width: 6, height: 20)
             .overlay(
-                Circle()
-                    .stroke(Color.white, lineWidth: 2)
+                RoundedRectangle(cornerRadius: 2)
+                    .stroke(Color.white, lineWidth: 1)
             )
             .shadow(radius: 2)
-            .offset(x: xPosition - 6)
+            .offset(x: xPosition - 3)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
