@@ -445,14 +445,19 @@ struct ContentView: View {
     // MARK: - Video Playback Section
 
     private func videoPlaybackSection(player: AVPlayer) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Text("Video Preview")
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            VideoPlayerView(player: player)
-                .frame(height: 300)
-                .cornerRadius(8)
+            VStack(spacing: 0) {
+                VideoPlayerView(player: player)
+                    .frame(height: 300)
+
+                VideoPlayerControls(player: player)
+            }
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
         }
     }
 }
