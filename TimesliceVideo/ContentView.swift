@@ -16,9 +16,9 @@ struct ContentView: View {
             VStack(spacing: 24) {
                 // Header
                 VStack(spacing: 8) {
-                    Text("TimesliceVideo")
+                    Text("TimeSpace Video Rotator")
                         .font(.system(size: 28, weight: .bold))
-                    Text("Transform your videos with unique timeslice effects")
+                    Text("Swap the roles of space and time")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -216,8 +216,14 @@ struct ContentView: View {
 
                 Spacer()
 
-                if let preview = viewModel.timeslicePreview {
-                    Text("\(Int(preview.size.width)) × \(Int(preview.size.height)) px")
+                if let preview = viewModel.timeslicePreview, let metadata = viewModel.videoMetadata {
+                    // Calculate true output dimensions based on actual frame count
+                    let duration = viewModel.processingParameters.endTime - viewModel.processingParameters.startTime
+                    let actualFrameCount = Int(duration * metadata.frameRate)
+                    let outputWidth = actualFrameCount
+                    let outputHeight = Int(metadata.height)
+
+                    Text("\(outputWidth) × \(outputHeight) px")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -239,20 +245,31 @@ struct ContentView: View {
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
-                } else if let image = viewModel.timeslicePreview {
+                } else if let image = viewModel.timeslicePreview, let metadata = viewModel.videoMetadata {
                     VStack {
                         Spacer()
-                        GeometryReader { geometry in
-                            ScrollView(.horizontal, showsIndicators: true) {
-                                Image(nsImage: image)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
+
+                        // Calculate if actual output is cut off
+                        let duration = viewModel.processingParameters.endTime - viewModel.processingParameters.startTime
+                        let actualFrameCount = Int(duration * metadata.frameRate)
+                        let isCutOff = actualFrameCount > 2000
+
+                        ZStack(alignment: .trailing) {
+                            Image(nsImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(height: 280)
+
+                            // Red indicator bar when actual output exceeds preview
+                            if isCutOff {
+                                Rectangle()
+                                    .fill(Color.red)
+                                    .frame(width: 3)
                                     .frame(height: 280)
-                                    .frame(minWidth: geometry.size.width)
-                                    .cornerRadius(6)
                             }
                         }
                         .frame(height: 280)
+
                         Spacer()
                     }
                     .frame(height: 300)
