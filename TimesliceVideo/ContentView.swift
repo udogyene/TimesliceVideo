@@ -217,13 +217,14 @@ struct ContentView: View {
                 Spacer()
 
                 if let preview = viewModel.timeslicePreview, let metadata = viewModel.videoMetadata {
-                    // Calculate true output dimensions based on actual frame count
+                    // Calculate true output dimensions based on actual frame count and speed factor
                     let duration = viewModel.processingParameters.endTime - viewModel.processingParameters.startTime
-                    let actualFrameCount = Int(duration * metadata.frameRate)
-                    let outputWidth = actualFrameCount
+                    let speedFactor = viewModel.processingParameters.speedFactor
+                    let outputDuration = duration / speedFactor
+                    let outputFrameCount = Int(outputDuration * metadata.frameRate)
                     let outputHeight = Int(metadata.height)
 
-                    Text("\(outputWidth) × \(outputHeight) px")
+                    Text("\(outputFrameCount) × \(outputHeight) px")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -251,8 +252,10 @@ struct ContentView: View {
 
                         // Calculate if actual output is cut off
                         let duration = viewModel.processingParameters.endTime - viewModel.processingParameters.startTime
-                        let actualFrameCount = Int(duration * metadata.frameRate)
-                        let isCutOff = actualFrameCount > 2000
+                        let speedFactor = viewModel.processingParameters.speedFactor
+                        let outputDuration = duration / speedFactor
+                        let outputFrameCount = Int(outputDuration * metadata.frameRate)
+                        let isCutOff = outputFrameCount > 2000
 
                         ZStack(alignment: .trailing) {
                             Image(nsImage: image)
