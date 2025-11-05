@@ -102,8 +102,7 @@ class VideoPreprocessor {
             AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: width * height * 8,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoQualityKey: 0.85
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
             ]
         ]
 

@@ -415,20 +415,24 @@ class TimesliceProcessor {
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: width * height * 8,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoQualityKey: 0.9
+                AVVideoAverageBitRateKey: width * height * 4, // Reduced bitrate for faster encoding
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264BaselineAutoLevel, // Baseline is much faster than High
+                AVVideoMaxKeyFrameIntervalKey: 30, // Keyframe every 30 frames
+                AVVideoExpectedSourceFrameRateKey: frameRate,
+                AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCAVLC // Faster than CABAC
             ]
         ]
 
         let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         writerInput.expectsMediaDataInRealTime = false
 
-        // Use BGRA format for output (color)
+        // Use BGRA format with hardware acceleration
         let sourcePixelBufferAttributes: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: width,
-            kCVPixelBufferHeightKey as String: height
+            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferMetalCompatibilityKey as String: true,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:]
         ]
 
         let pixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(
@@ -444,11 +448,11 @@ class TimesliceProcessor {
 
         writer.startSession(atSourceTime: .zero)
 
-        let totalOutputFrames = width // One output frame per x-position
+        let totalOutputFrames = columnsByX.count // One output frame per x-position in original video
         let processStart = CFAbsoluteTimeGetCurrent()
 
         // Parallel frame assembly configuration
-        let batchSize = 20 // Assemble frames in batches
+        let batchSize = 100 // Assemble frames in batches (increased for better parallelism)
         let frameBuffer = FrameBuffer()
         let encodingQueue = DispatchQueue(label: "videoWriter")
 
@@ -567,7 +571,10 @@ class TimesliceProcessor {
 
         let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
         let bytesPerPixel = 4
-        let dstPtr = baseAddress.assumingMemoryBound(to: UInt8.self)
+        
+        // Use UInt32 for fast 4-byte pixel copies
+        let dstPtr32 = baseAddress.assumingMemoryBound(to: UInt32.self)
+        let pixelsPerRow = bytesPerRow / bytesPerPixel
 
         // Copy each column into the output frame horizontally
         // columnsForX contains all frames' columns for this x-position
@@ -575,19 +582,14 @@ class TimesliceProcessor {
             guard frameIndex < width else { break }
 
             columnData.withUnsafeBytes { columnPtr in
-                guard let columnBase = columnPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                guard let srcPtr32 = columnPtr.baseAddress?.assumingMemoryBound(to: UInt32.self) else {
                     return
                 }
 
+                // Copy entire column using single 32-bit writes (4x faster than byte-by-byte)
                 for y in 0..<height {
-                    let srcOffset = y * bytesPerPixel
-                    let dstOffset = y * bytesPerRow + frameIndex * bytesPerPixel
-
-                    // Copy BGRA pixel
-                    dstPtr[dstOffset] = columnBase[srcOffset]
-                    dstPtr[dstOffset + 1] = columnBase[srcOffset + 1]
-                    dstPtr[dstOffset + 2] = columnBase[srcOffset + 2]
-                    dstPtr[dstOffset + 3] = columnBase[srcOffset + 3]
+                    let dstIndex = y * pixelsPerRow + frameIndex
+                    dstPtr32[dstIndex] = srcPtr32[y]
                 }
             }
         }
