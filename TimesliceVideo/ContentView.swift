@@ -161,16 +161,42 @@ struct ContentView: View {
             ProgressView(value: progress, total: 1.0)
                 .progressViewStyle(.linear)
 
-            Text("Speeding up video to 5 minutes for optimal processing")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack {
+                Text("Speeding up video to 5 minutes for optimal processing")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Spacer()
+                if let timeRemaining = viewModel.preprocessingTimeRemaining {
+                    Text(formatTimeRemaining(timeRemaining))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                }
+            }
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color.blue.opacity(0.1))
         )
+    }
+    
+    // MARK: - Helper Functions
+    
+    private func formatTimeRemaining(_ seconds: TimeInterval) -> String {
+        let totalSeconds = Int(seconds.rounded())
+        
+        if totalSeconds < 60 {
+            return "\(totalSeconds)s remaining"
+        } else if totalSeconds < 3600 {
+            let minutes = totalSeconds / 60
+            let secs = totalSeconds % 60
+            return String(format: "%d:%02ds remaining", minutes, secs)
+        } else {
+            let hours = totalSeconds / 3600
+            let minutes = (totalSeconds % 3600) / 60
+            return String(format: "%d:%02d remaining", hours, minutes)
+        }
     }
 
     // MARK: - Video Info Section

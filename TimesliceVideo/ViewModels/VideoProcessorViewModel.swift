@@ -48,10 +48,16 @@ class VideoProcessorViewModel: ObservableObject {
     /// Video player for source video preview
     @Published var videoPlayer: AVPlayer?
 
+    /// Estimated time remaining for preprocessing (in seconds)
+    @Published var preprocessingTimeRemaining: TimeInterval?
+
     // MARK: - Private Properties
 
     /// Task for debounced preview generation
     private var previewGenerationTask: Task<Void, Never>?
+
+    /// Start time for preprocessing operation
+    private var preprocessingStartTime: Date?
 
     /// Debounce delay in seconds
     private let previewDebounceDelay: TimeInterval = 0.5
@@ -340,6 +346,8 @@ class VideoProcessorViewModel: ObservableObject {
     private func preprocessVideo(metadata: VideoMetadata) async {
         await MainActor.run {
             self.processingState = .preprocessing(progress: 0.0)
+            self.preprocessingStartTime = Date()
+            self.preprocessingTimeRemaining = nil
         }
 
         print("Video requires preprocessing (duration: \(metadata.duration)s > \(VideoPreprocessor.maxDuration)s)")
@@ -351,10 +359,23 @@ class VideoProcessorViewModel: ObservableObject {
                 progressCallback: { [weak self] progress in
                     guard let self = self else { return }
                     Task { @MainActor [weak self] in
-                        self?.processingState = .preprocessing(progress: progress)
+                        guard let self = self else { return }
+                        self.processingState = .preprocessing(progress: progress)
+                        
+                        // Calculate estimated time remaining
+                        if let startTime = self.preprocessingStartTime, progress > 0.05 {
+                            let elapsed = Date().timeIntervalSince(startTime)
+                            let estimatedTotal = elapsed / progress
+                            let remaining = estimatedTotal - elapsed
+                            self.preprocessingTimeRemaining = max(0, remaining)
+                        }
                     }
                 }
             )
+
+            await MainActor.run {
+                self.preprocessingTimeRemaining = nil
+            }
 
             // Load the preprocessed video
             VideoLoader.loadVideo(from: preprocessedURL) { [weak self] result in
@@ -373,6 +394,7 @@ class VideoProcessorViewModel: ObservableObject {
             await MainActor.run {
                 self.errorMessage = "Failed to preprocess video: \(error.localizedDescription)"
                 self.processingState = .failed(error: error.localizedDescription)
+                self.preprocessingTimeRemaining = nil
             }
         }
     }
