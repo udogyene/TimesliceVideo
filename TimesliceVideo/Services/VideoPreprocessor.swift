@@ -8,6 +8,7 @@
 import AVFoundation
 import AppKit
 import CoreMedia
+import CoreVideo
 
 /// Service for preprocessing videos that are too long
 class VideoPreprocessor {
@@ -15,7 +16,7 @@ class VideoPreprocessor {
     /// Maximum video duration in seconds before preprocessing is required
     static let maxDuration: Double = 300.0 // 5 minutes
 
-    /// Speeds up a video to fit within the maximum duration
+    /// Speeds up a video to fit within the maximum duration by sampling frames
     /// - Parameters:
     ///   - asset: The source video asset
     ///   - originalURL: The original video URL
@@ -36,6 +37,35 @@ class VideoPreprocessor {
         print("  Target duration: \(maxDuration)s")
         print("  Speed factor: \(speedFactor)x")
 
+        // Get video track properties
+        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+            throw NSError(domain: "VideoPreprocessor", code: 1, userInfo: [NSLocalizedDescriptionKey: "No video track found"])
+        }
+
+        let naturalSize = try await videoTrack.load(.naturalSize)
+        let transform = try await videoTrack.load(.preferredTransform)
+        let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
+
+        // Check if video is rotated
+        let isPortrait = abs(transform.b) == 1.0 && abs(transform.c) == 1.0
+        let width = Int(isPortrait ? naturalSize.height : naturalSize.width)
+        let height = Int(isPortrait ? naturalSize.width : naturalSize.height)
+
+        print("  Original dimensions: \(width) × \(height)")
+        print("  Original frame rate: \(nominalFrameRate) fps")
+
+        // Calculate frame sampling
+        let totalFrames = Int(duration * Double(nominalFrameRate))
+        let targetFrames = Int(maxDuration * Double(nominalFrameRate))
+        let frameInterval = max(1, Int(round(Double(totalFrames) / Double(targetFrames)))) // Sample every Nth frame
+        let outputFrames = totalFrames / frameInterval
+        let outputDuration = Double(outputFrames) / Double(nominalFrameRate)
+
+        print("  Total frames: \(totalFrames)")
+        print("  Frame interval: \(frameInterval) (sample every \(frameInterval) frames)")
+        print("  Output frames: \(outputFrames)")
+        print("  Output duration: \(String(format: "%.2f", outputDuration))s")
+
         // Create temporary output URL
         let tempDir = FileManager.default.temporaryDirectory
         let outputURL = tempDir.appendingPathComponent("preprocessed_\(UUID().uuidString).mp4")
@@ -43,114 +73,129 @@ class VideoPreprocessor {
         // Remove existing file if it exists
         try? FileManager.default.removeItem(at: outputURL)
 
-        // Create composition
-        let composition = AVMutableComposition()
-
-        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
-            throw NSError(domain: "VideoPreprocessor", code: 1, userInfo: [NSLocalizedDescriptionKey: "No video track found"])
+        // Setup reader
+        guard let reader = try? AVAssetReader(asset: asset) else {
+            throw NSError(domain: "VideoPreprocessor", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not create asset reader"])
         }
 
-        guard let compositionVideoTrack = composition.addMutableTrack(
-            withMediaType: .video,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            throw NSError(domain: "VideoPreprocessor", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create composition track"])
+        let outputSettings: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferMetalCompatibilityKey as String: false
+        ]
+
+        let readerOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: outputSettings)
+        reader.add(readerOutput)
+
+        guard reader.startReading() else {
+            let error = reader.error?.localizedDescription ?? "Unknown error"
+            throw NSError(domain: "VideoPreprocessor", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to start reading: \(error)"])
         }
 
-        // Insert the video track
-        let timeRange = CMTimeRange(start: .zero, duration: try await asset.load(.duration))
-        try compositionVideoTrack.insertTimeRange(timeRange, of: videoTrack, at: .zero)
-
-        // Apply time scaling to speed up the video
-        let scaledDuration = CMTime(seconds: maxDuration, preferredTimescale: 600)
-        compositionVideoTrack.scaleTimeRange(timeRange, toDuration: scaledDuration)
-
-        // Handle audio track if present
-        if let audioTrack = try? await asset.loadTracks(withMediaType: .audio).first,
-           let compositionAudioTrack = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-           ) {
-            try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
-            compositionAudioTrack.scaleTimeRange(timeRange, toDuration: scaledDuration)
+        // Setup writer
+        guard let writer = try? AVAssetWriter(outputURL: outputURL, fileType: .mp4) else {
+            throw NSError(domain: "VideoPreprocessor", code: 4, userInfo: [NSLocalizedDescriptionKey: "Could not create asset writer"])
         }
 
-        // Export the composition
-        // Use passthrough preset to avoid re-encoding (just remux with time scaling)
-        guard let exportSession = AVAssetExportSession(
-            asset: composition,
-            presetName: AVAssetExportPresetPassthrough
-        ) else {
-            throw NSError(domain: "VideoPreprocessor", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: width * height * 8,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoQualityKey: 0.85
+            ]
+        ]
+
+        let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        writerInput.expectsMediaDataInRealTime = false
+        writerInput.transform = transform // Preserve original transform
+
+        let sourcePixelBufferAttributes: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height
+        ]
+
+        let pixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: writerInput,
+            sourcePixelBufferAttributes: sourcePixelBufferAttributes
+        )
+
+        writer.add(writerInput)
+
+        guard writer.startWriting() else {
+            throw NSError(domain: "VideoPreprocessor", code: 5, userInfo: [NSLocalizedDescriptionKey: "Could not start writing"])
         }
 
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .mp4
+        writer.startSession(atSourceTime: .zero)
 
-        print("Export session created with passthrough preset")
+        print("Starting frame sampling...")
 
-        // Monitor progress while exporting
-        print("Starting export...")
+        // Process frames
+        var frameIndex = 0
+        var writtenFrames = 0
+        let processingStart = CFAbsoluteTimeGetCurrent()
 
-        await withTaskGroup(of: Void.self) { group in
-            // Start the export task
-            group.addTask {
-                await withCheckedContinuation { continuation in
-                    exportSession.exportAsynchronously {
-                        continuation.resume()
-                    }
-                }
-            }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let queue = DispatchQueue(label: "preprocessor")
 
-            // Start the progress monitoring task
-            group.addTask {
-                var lastProgress: Float = -1
-                while exportSession.status != .completed &&
-                      exportSession.status != .failed &&
-                      exportSession.status != .cancelled {
-                    let progress = exportSession.progress
-
-                    // Only print if progress changed or if we're stuck at 0 (print less frequently)
-                    if progress != lastProgress || (progress == 0 && Int.random(in: 0..<50) == 0) {
-                        print("Export progress: \(Int(progress * 100))% (status: \(exportSession.status.rawValue))")
-                        if let error = exportSession.error {
-                            print("Export error detected: \(error.localizedDescription)")
+            writerInput.requestMediaDataWhenReady(on: queue) {
+                while writerInput.isReadyForMoreMediaData {
+                    guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
+                        // No more frames
+                        writerInput.markAsFinished()
+                        writer.finishWriting {
+                            continuation.resume()
                         }
-                        lastProgress = progress
+                        return
                     }
 
-                    await MainActor.run {
-                        progressCallback(Double(progress))
-                    }
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                }
+                    defer { CMSampleBufferInvalidate(sampleBuffer) }
 
-                // Final progress update
-                let finalProgress = Double(exportSession.progress)
-                print("Export final progress: \(Int(finalProgress * 100))%")
-                await MainActor.run {
-                    progressCallback(finalProgress)
+                    // Sample frames based on interval
+                    if frameIndex % frameInterval == 0 {
+                        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+                            frameIndex += 1
+                            continue
+                        }
+
+                        // Create presentation time for output video
+                        let presentationTime = CMTime(
+                            value: Int64(writtenFrames),
+                            timescale: Int32(nominalFrameRate)
+                        )
+
+                        // Append the frame
+                        pixelBufferAdaptor.append(imageBuffer, withPresentationTime: presentationTime)
+                        writtenFrames += 1
+
+                        // Update progress
+                        if writtenFrames % 10 == 0 {
+                            let progress = Double(writtenFrames) / Double(outputFrames)
+                            Task { @MainActor in
+                                progressCallback(progress)
+                            }
+                        }
+
+                        // Log progress
+                        if writtenFrames % 100 == 0 {
+                            let elapsed = CFAbsoluteTimeGetCurrent() - processingStart
+                            let fps = Double(writtenFrames) / elapsed
+                            print("  Processed \(writtenFrames)/\(outputFrames) frames (\(String(format: "%.1f", fps)) fps)")
+                        }
+                    }
+
+                    frameIndex += 1
                 }
             }
-
-            await group.waitForAll()
         }
 
-        print("Export completed with status: \(exportSession.status.rawValue)")
-
-        if let error = exportSession.error {
-            print("Export error: \(error.localizedDescription)")
-            throw error
-        }
-
-        guard exportSession.status == .completed else {
-            let errorMsg = "Export failed with status: \(exportSession.status.rawValue)"
-            print(errorMsg)
-            throw NSError(domain: "VideoPreprocessor", code: 4, userInfo: [NSLocalizedDescriptionKey: errorMsg])
-        }
+        reader.cancelReading()
 
         print("Preprocessing completed successfully")
         print("  Output URL: \(outputURL.path)")
+        print("  Written frames: \(writtenFrames)")
 
         return outputURL
     }

@@ -88,22 +88,39 @@ class PreviewGenerator {
         let fps = Double(nominalFrameRate)
         let totalFrames = Int(duration * fps)
 
-        // Downsample: sample every other frame for preview (2x faster)
-        let frameInterval = Int(speedFactor) * 2
-        let framesToSample = min(totalFrames / frameInterval, maxFrames)
+        // Calculate output frames after speed adjustment
+        let outputDuration = duration / speedFactor
+        let outputFrames = Int(outputDuration * fps)
+
+        // For preview, we want to sample consistently regardless of speed factor
+        // Target: ~500-600 frames for good quality/performance balance
+        let targetPreviewFrames = min(maxFrames, 600)
+
+        // Calculate optimal sampling interval to get close to target
+        // We sample from the output frames (after speed adjustment)
+        let optimalInterval = max(1, outputFrames / targetPreviewFrames)
+        let framesToSample = min(outputFrames / optimalInterval, maxFrames)
 
         guard framesToSample > 0 else {
             throw PreviewGeneratorError.invalidParameters
         }
 
+        // Adjust the frame interval for the actual input frames
+        // We need to account for the speed factor when sampling from input
+        let frameInterval = Int(ceil(Double(optimalInterval) * speedFactor))
+
         // Downsample height: use half resolution (2x faster)
         let downsampledHeight = height / 2
 
         print("Preview generation started:")
-        print("  Duration: \(String(format: "%.2f", duration))s")
-        print("  Total frames in range: \(totalFrames)")
+        print("  Input duration: \(String(format: "%.2f", duration))s")
+        print("  Total input frames: \(totalFrames)")
         print("  Speed factor: \(speedFactor)x")
-        print("  Frame interval (with downsampling): \(frameInterval)")
+        print("  Output duration: \(String(format: "%.2f", outputDuration))s")
+        print("  Output frames: \(outputFrames)")
+        print("  Target preview frames: \(targetPreviewFrames)")
+        print("  Optimal interval: \(optimalInterval)")
+        print("  Frame interval (adjusted for input): \(frameInterval)")
         print("  Frames to sample: \(framesToSample)")
         print("  Sampling column: x=\(samplingX)")
         print("  Output height (downsampled): \(downsampledHeight)")
