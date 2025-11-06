@@ -151,11 +151,13 @@ struct VideoPlayerControls: View {
                             }
                         )
                         .controlSize(.small)
+                        .padding(.horizontal, 4)
 
                         // Range indicator overlay
-                        let sliderWidth = geometry.size.width
-                        let startX = CGFloat(startTime / duration) * sliderWidth
-                        let endX = CGFloat(endTime / duration) * sliderWidth
+                        // Add 4px padding on each side to prevent marker clipping
+                        let sliderWidth = geometry.size.width - 8
+                        let startX = CGFloat(startTime / duration) * sliderWidth + 4
+                        let endX = CGFloat(endTime / duration) * sliderWidth + 4
 
                         // Range highlight
                         Rectangle()
@@ -179,6 +181,7 @@ struct VideoPlayerControls: View {
                                 }
                             }
                         )
+                        .offset(x: 4)
 
                         // End marker (red)
                         RangeMarker(
@@ -195,6 +198,7 @@ struct VideoPlayerControls: View {
                                 }
                             }
                         )
+                        .offset(x: 4)
                     }
                 }
                 .frame(height: 20)
